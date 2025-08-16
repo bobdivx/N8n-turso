@@ -93,6 +93,12 @@ export class Turso implements INodeType {
 						description: "Delete a table",
 						action: "Delete a table",
 					},
+					{
+						name: "Add Column",
+						value: "addColumn",
+						description: "Add a column to a table",
+						action: "Add a column to a table",
+					}
 				],
 				default: "create",
 			},
@@ -210,6 +216,42 @@ export class Turso implements INodeType {
 				},
 				description: "The columns of the table",
 			},
+            {
+                displayName: "Column Name",
+                name: "columnName",
+                type: "string",
+                displayOptions: {
+                    show: {
+                        resource: ["table"],
+                        operation: ["addColumn"],
+                    },
+                },
+                default: "",
+                placeholder: "my_column",
+                description: "The name of the new column",
+                required: true,
+            },
+            {
+                displayName: "Column Type",
+                name: "columnType",
+                type: "options",
+                displayOptions: {
+                    show: {
+                        resource: ["table"],
+                        operation: ["addColumn"],
+                    },
+                },
+                options: [
+                    { name: "TEXT", value: "TEXT" },
+                    { name: "INTEGER", value: "INTEGER" },
+                    { name: "REAL", value: "REAL" },
+                    { name: "BLOB", value: "BLOB" },
+                    { name: "NUMERIC", value: "NUMERIC" },
+                ],
+                default: "TEXT",
+                description: "The type of the new column",
+                required: true,
+            },
 			{
 				displayName: "Data",
 				name: "data",
@@ -279,7 +321,13 @@ export class Turso implements INodeType {
 						const query = `DROP TABLE ${tableName};`;
 						await client.execute(query);
 						returnData.push({ json: { success: true, message: `Table ${tableName} deleted` } });
-					}
+					} else if (operation === "addColumn") {
+                        const columnName = this.getNodeParameter("columnName", i, "") as string;
+                        const columnType = this.getNodeParameter("columnType", i, "") as string;
+                        const query = `ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnType};`;
+                        await client.execute(query);
+                        returnData.push({ json: { success: true, message: `Column ${columnName} added to table ${tableName}` } });
+                    }
 				} else if (resource === "row") {
 					const tableName = this.getNodeParameter("tableName", i, "") as string;
 					if (operation === "insert") {
