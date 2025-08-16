@@ -296,6 +296,9 @@ class Turso {
             const resource = this.getNodeParameter("resource", 0, "");
             const operation = this.getNodeParameter("operation", 0, "");
             const credentials = yield this.getCredentials("tursoApi");
+            if (!credentials.url || !credentials.authToken) {
+                throw new n8n_workflow_1.NodeOperationError(this.getNode(), 'Database URL and Auth Token are required');
+            }
             const client = (0, client_1.createClient)({
                 url: credentials.url,
                 authToken: credentials.authToken,
@@ -305,69 +308,164 @@ class Turso {
                     if (resource === "query") {
                         if (operation === "execute") {
                             const query = this.getNodeParameter("query", i, "");
+                            if (!query.trim()) {
+                                throw new n8n_workflow_1.NodeOperationError(this.getNode(), 'SQL query cannot be empty');
+                            }
                             const result = yield client.execute(query);
                             returnData = this.helpers.returnJsonArray(result.rows);
                         }
                     }
                     else if (resource === "table") {
                         const tableName = this.getNodeParameter("tableName", i, "");
+                        if (!tableName.trim()) {
+                            throw new n8n_workflow_1.NodeOperationError(this.getNode(), 'Table name cannot be empty');
+                        }
                         if (operation === "create") {
-                            const columns = this.getNodeParameter("columns", i, {}).column;
-                            const columnDefinitions = columns
-                                .map((col) => `${col.name} ${col.type} ${col.primaryKey ? "PRIMARY KEY" : ""} ${col.notNull ? "NOT NULL" : ""}`)
+                            const columnsParam = this.getNodeParameter("columns", i, {});
+                            if (!columnsParam || !columnsParam.column || !Array.isArray(columnsParam.column) || columnsParam.column.length === 0) {
+                                throw new n8n_workflow_1.NodeOperationError(this.getNode(), 'At least one column is required to create a table');
+                            }
+                            const columnDefinitions = columnsParam.column
+                                .map((col) => {
+                                let definition = `${col.name} ${col.type}`;
+                                if (col.primaryKey)
+                                    definition += " PRIMARY KEY";
+                                if (col.notNull)
+                                    definition += " NOT NULL";
+                                return definition;
+                            })
                                 .join(", ");
-                            const query = `CREATE TABLE ${tableName} (${columnDefinitions});`;
+                            const query = `CREATE TABLE IF NOT EXISTS ${tableName} (${columnDefinitions});`;
                             yield client.execute(query);
-                            returnData.push({ json: { success: true, message: `Table ${tableName} created` } });
+                            returnData.push({
+                                json: {
+                                    success: true,
+                                    message: `Table ${tableName} created successfully`,
+                                    tableName,
+                                    columns: columnsParam.column
+                                }
+                            });
                         }
                         else if (operation === "delete") {
-                            const query = `DROP TABLE ${tableName};`;
+                            const query = `DROP TABLE IF EXISTS ${tableName};`;
                             yield client.execute(query);
-                            returnData.push({ json: { success: true, message: `Table ${tableName} deleted` } });
+                            returnData.push({
+                                json: {
+                                    success: true,
+                                    message: `Table ${tableName} deleted successfully`,
+                                    tableName
+                                }
+                            });
                         }
                         else if (operation === "addColumn") {
                             const columnName = this.getNodeParameter("columnName", i, "");
                             const columnType = this.getNodeParameter("columnType", i, "");
+                            if (!columnName.trim()) {
+                                throw new n8n_workflow_1.NodeOperationError(this.getNode(), 'Column name cannot be empty');
+                            }
                             const query = `ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnType};`;
                             yield client.execute(query);
-                            returnData.push({ json: { success: true, message: `Column ${columnName} added to table ${tableName}` } });
+                            returnData.push({
+                                json: {
+                                    success: true,
+                                    message: `Column ${columnName} added to table ${tableName} successfully`,
+                                    tableName,
+                                    columnName,
+                                    columnType
+                                }
+                            });
                         }
                     }
                     else if (resource === "row") {
                         const tableName = this.getNodeParameter("tableName", i, "");
+                        if (!tableName.trim()) {
+                            throw new n8n_workflow_1.NodeOperationError(this.getNode(), 'Table name cannot be empty');
+                        }
                         if (operation === "insert") {
                             const data = this.getNodeParameter("data", i, "{}");
-                            const parsedData = JSON.parse(data);
+                            let parsedData;
+                            try {
+                                parsedData = JSON.parse(data);
+                            }
+                            catch (e) {
+                                throw new n8n_workflow_1.NodeOperationError(this.getNode(), 'Invalid JSON data format');
+                            }
+                            if (Object.keys(parsedData).length === 0) {
+                                throw new n8n_workflow_1.NodeOperationError(this.getNode(), 'Data cannot be empty');
+                            }
                             const columns = Object.keys(parsedData).join(", ");
                             const values = Object.values(parsedData);
                             const placeholders = values.map(() => "?").join(", ");
                             const query = `INSERT INTO ${tableName} (${columns}) VALUES (${placeholders});`;
                             const result = yield client.execute({ sql: query, args: values });
-                            returnData.push({ json: { success: true, rowsAffected: result.rowsAffected } });
+                            returnData.push({
+                                json: {
+                                    success: true,
+                                    rowsAffected: result.rowsAffected,
+                                    tableName,
+                                    insertedData: parsedData
+                                }
+                            });
                         }
                         else if (operation === "update") {
                             const data = this.getNodeParameter("data", i, "{}");
                             const whereClause = this.getNodeParameter("whereClause", i, "");
-                            const parsedData = JSON.parse(data);
+                            if (!whereClause.trim()) {
+                                throw new n8n_workflow_1.NodeOperationError(this.getNode(), 'Where clause cannot be empty for update operation');
+                            }
+                            let parsedData;
+                            try {
+                                parsedData = JSON.parse(data);
+                            }
+                            catch (e) {
+                                throw new n8n_workflow_1.NodeOperationError(this.getNode(), 'Invalid JSON data format');
+                            }
+                            if (Object.keys(parsedData).length === 0) {
+                                throw new n8n_workflow_1.NodeOperationError(this.getNode(), 'Data cannot be empty');
+                            }
                             const setClause = Object.keys(parsedData)
                                 .map((key) => `${key} = ?`)
                                 .join(", ");
                             const values = Object.values(parsedData);
                             const query = `UPDATE ${tableName} SET ${setClause} WHERE ${whereClause};`;
                             const result = yield client.execute({ sql: query, args: values });
-                            returnData.push({ json: { success: true, rowsAffected: result.rowsAffected } });
+                            returnData.push({
+                                json: {
+                                    success: true,
+                                    rowsAffected: result.rowsAffected,
+                                    tableName,
+                                    updatedData: parsedData,
+                                    whereClause
+                                }
+                            });
                         }
                         else if (operation === "delete") {
                             const whereClause = this.getNodeParameter("whereClause", i, "");
+                            if (!whereClause.trim()) {
+                                throw new n8n_workflow_1.NodeOperationError(this.getNode(), 'Where clause cannot be empty for delete operation');
+                            }
                             const query = `DELETE FROM ${tableName} WHERE ${whereClause};`;
                             const result = yield client.execute(query);
-                            returnData.push({ json: { success: true, rowsAffected: result.rowsAffected } });
+                            returnData.push({
+                                json: {
+                                    success: true,
+                                    rowsAffected: result.rowsAffected,
+                                    tableName,
+                                    whereClause
+                                }
+                            });
                         }
                     }
                 }
                 catch (error) {
                     if (this.continueOnFail()) {
-                        returnData.push({ json: { error: error.message } });
+                        returnData.push({
+                            json: {
+                                error: error.message,
+                                resource,
+                                operation
+                            }
+                        });
                         continue;
                     }
                     throw new n8n_workflow_1.NodeApiError(this.getNode(), error);

@@ -1,0 +1,32 @@
+# Configuration N8N avec node Turso personnalisé
+# Copiez ce fichier vers .env et modifiez les valeurs
+
+# Configuration de base N8N
+N8N_HOST=localhost
+N8N_PORT=5678
+N8N_PROTOCOL=http
+WEBHOOK_URL=http://localhost:5678/
+
+# Chemin vers les nodes personnalisés (IMPORTANT pour le node Turso)
+N8N_CUSTOM_EXTENSIONS_PATH=~/.n8n/custom
+
+# Configuration de la base de données N8N (optionnel)
+DB_TYPE=sqlite
+DB_SQLITE_DATABASE=~/.n8n/database.sqlite
+
+# Configuration de sécurité
+N8N_ENCRYPTION_KEY=your-encryption-key-here
+N8N_USER_MANAGEMENT_DISABLED=false
+
+# Configuration des logs
+N8N_LOG_LEVEL=info
+N8N_LOG_OUTPUT=console
+
+# Configuration des timeouts
+N8N_TIMEOUT=30000
+
+# Configuration des webhooks
+N8N_WEBHOOK_TEST_URL=http://localhost:5678/webhook-test/
+
+# Configuration des credentials (optionnel)
+N8N_CREDENTIALS_OVERWRITE_DATA=false

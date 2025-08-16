@@ -1,3 +1,144 @@
+#!/bin/bash
+
+# Script d'automatisation complet pour déployer le node Turso sur N8N
+# À exécuter directement sur le serveur N8N (10.1.2.59)
+
+set -e  # Arrêter en cas d'erreur
+
+echo "🚀 Déploiement automatique du node Turso pour N8N"
+echo "📍 Serveur: 10.1.2.59:5678"
+echo "⏰ $(date)"
+echo ""
+
+# Couleurs pour l'affichage
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Fonction pour afficher les messages
+log_info() {
+    echo -e "${BLUE}ℹ️  $1${NC}"
+}
+
+log_success() {
+    echo -e "${GREEN}✅ $1${NC}"
+}
+
+log_warning() {
+    echo -e "${YELLOW}⚠️  $1${NC}"
+}
+
+log_error() {
+    echo -e "${RED}❌ $1${NC}"
+}
+
+# Vérifier que nous sommes root
+if [ "$EUID" -ne 0 ]; then
+    log_error "Ce script doit être exécuté en tant que root"
+    exit 1
+fi
+
+# Vérifier la connectivité réseau
+log_info "Vérification de la connectivité réseau..."
+if ! ping -c 1 8.8.8.8 &> /dev/null; then
+    log_error "Pas de connectivité Internet"
+    exit 1
+fi
+log_success "Connectivité Internet OK"
+
+# Vérifier et installer Node.js si nécessaire
+log_info "Vérification de Node.js..."
+if ! command -v node &> /dev/null; then
+    log_warning "Node.js n'est pas installé. Installation en cours..."
+    
+    # Ajouter le repository NodeSource
+    curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+    
+    # Installer Node.js
+    apt-get update
+    apt-get install -y nodejs
+    
+    log_success "Node.js installé"
+else
+    NODE_VERSION=$(node --version)
+    log_success "Node.js déjà installé: $NODE_VERSION"
+fi
+
+# Vérifier npm
+if ! command -v npm &> /dev/null; then
+    log_error "npm n'est pas installé"
+    exit 1
+fi
+
+# Créer le répertoire des nodes personnalisés
+N8N_CUSTOM_DIR="/root/.n8n/custom"
+log_info "Création du répertoire: $N8N_CUSTOM_DIR"
+mkdir -p "$N8N_CUSTOM_DIR"
+
+# Créer le projet Turso directement sur le serveur
+cd "$N8N_CUSTOM_DIR"
+
+# Créer la structure du projet
+log_info "Création de la structure du projet Turso..."
+mkdir -p nodes credentials
+
+# Créer package.json
+cat > package.json << 'EOF'
+{
+  "name": "n8n-nodes-turso",
+  "version": "1.0.0",
+  "description": "N8N node for Turso database operations",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "keywords": ["n8n", "turso", "database", "sqlite"],
+  "author": "Jules",
+  "n8n": {
+    "n8nVersion": "1.0.0",
+    "nodes": [
+      "dist/nodes/Turso.node.js"
+    ],
+    "credentials": [
+      "dist/credentials/TursoApi.credentials.js"
+    ]
+  },
+  "license": "MIT",
+  "type": "commonjs",
+  "dependencies": {
+    "@libsql/client": "^0.15.11",
+    "n8n-workflow": "^1.82.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "n8n-core": "^1.14.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.2"
+  }
+}
+EOF
+
+# Créer tsconfig.json
+cat > tsconfig.json << 'EOF'
+{
+  "compilerOptions": {
+    "target": "es6",
+    "module": "commonjs",
+    "outDir": "./dist",
+    "rootDir": "./",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  }
+}
+EOF
+
+# Créer le node Turso
+cat > nodes/Turso.node.ts << 'EOF'
 import {
 	IExecuteFunctions,
 	INodeExecutionData,
@@ -474,3 +615,151 @@ export class Turso implements INodeType {
 		return [this.helpers.returnJsonArray(returnData)];
 	}
 }
+EOF
+
+# Créer les credentials Turso
+cat > credentials/TursoApi.credentials.ts << 'EOF'
+import {
+	ICredentialType,
+	INodeProperties,
+} from "n8n-workflow";
+
+export class TursoApi implements ICredentialType {
+	name = "tursoApi";
+	displayName = "Turso API";
+	documentationUrl = "https://docs.turso.tech/sdk/ts/reference";
+	properties: INodeProperties[] = [
+		{
+			displayName: "Database URL",
+			name: "url",
+			type: "string",
+			default: "",
+			placeholder: "libsql://your-database.turso.io",
+			description: "The URL of your Turso database",
+			required: true,
+		},
+		{
+			displayName: "Auth Token",
+			name: "authToken",
+			type: "string",
+			typeOptions: {
+				password: true,
+			},
+			default: "",
+			description: "The authentication token for your Turso database",
+			required: true,
+		},
+	];
+}
+EOF
+
+# Créer le fichier d'index
+cat > index.ts << 'EOF'
+import { Turso } from './nodes/Turso.node';
+import { TursoApi } from './credentials/TursoApi.credentials';
+
+export const nodes = [Turso];
+export const credentials = [TursoApi];
+EOF
+
+# Installer les dépendances
+log_info "Installation des dépendances..."
+npm install
+
+# Compiler le projet
+log_info "Compilation du projet..."
+npm run build
+
+# Vérifier que la compilation a réussi
+if [ ! -f "dist/nodes/Turso.node.js" ]; then
+    log_error "La compilation a échoué"
+    exit 1
+fi
+
+log_success "Compilation réussie !"
+
+# Copier les fichiers compilés
+log_info "Copie des fichiers compilés..."
+cp -r dist/* ./
+
+# Nettoyer les fichiers temporaires
+rm -rf dist/ node_modules/ package*.json tsconfig.json index.ts nodes/ credentials/
+
+# Vérifier que N8N est en cours d'exécution
+log_info "Vérification du statut de N8N..."
+if systemctl is-active --quiet n8n; then
+    log_success "N8N est en cours d'exécution"
+    
+    # Configurer N8N pour charger les nodes personnalisés
+    log_info "Configuration de N8N pour les nodes personnalisés..."
+    
+    # Vérifier si la variable d'environnement est déjà configurée
+    if ! grep -q "N8N_CUSTOM_EXTENSIONS_PATH" /etc/systemd/system/n8n.service; then
+        log_info "Ajout de la variable d'environnement N8N_CUSTOM_EXTENSIONS_PATH..."
+        
+        # Sauvegarder le fichier original
+        cp /etc/systemd/system/n8n.service /etc/systemd/system/n8n.service.backup
+        
+        # Ajouter la variable d'environnement
+        sed -i '/\[Service\]/a Environment="N8N_CUSTOM_EXTENSIONS_PATH=/root/.n8n/custom"' /etc/systemd/system/n8n.service
+        
+        # Recharger la configuration systemd
+        systemctl daemon-reload
+        
+        # Redémarrer N8N
+        log_info "Redémarrage de N8N..."
+        systemctl restart n8n
+        
+        # Attendre que N8N redémarre
+        sleep 10
+        
+        # Vérifier le statut
+        if systemctl is-active --quiet n8n; then
+            log_success "N8N redémarré avec succès"
+        else
+            log_error "Erreur lors du redémarrage de N8N"
+            systemctl status n8n
+        fi
+    else
+        log_success "La variable d'environnement est déjà configurée"
+        
+        # Redémarrer N8N pour charger le nouveau node
+        log_info "Redémarrage de N8N pour charger le nouveau node..."
+        systemctl restart n8n
+        sleep 10
+    fi
+else
+    log_warning "N8N n'est pas en cours d'exécution"
+    log_info "Démarrage de N8N..."
+    systemctl start n8n
+    sleep 10
+fi
+
+# Vérification finale
+log_info "Vérification finale..."
+if [ -f "Turso.node.js" ] && [ -f "TursoApi.credentials.js" ]; then
+    log_success "✅ Déploiement réussi !"
+    echo ""
+    echo "🎉 Votre node Turso est maintenant disponible dans N8N !"
+    echo ""
+    echo "📋 Prochaines étapes:"
+    echo "1. Accédez à l'interface N8N: http://10.1.2.59:5678/"
+    echo "2. Créez un nouveau workflow"
+    echo "3. Ajoutez un nouveau node et recherchez 'Turso'"
+    echo "4. Configurez vos credentials Turso"
+    echo "5. Testez avec une requête simple: SELECT 1 as test;"
+    echo ""
+    echo "🔧 Configuration des credentials:"
+    echo "   - Database URL: libsql://your-database.turso.io"
+    echo "   - Auth Token: Votre token Turso"
+    echo ""
+    echo "📊 Fonctionnalités disponibles:"
+    echo "   - Requêtes SQL personnalisées"
+    echo "   - Création/suppression de tables"
+    echo "   - Insertion/modification/suppression de données"
+    echo ""
+    echo "🚀 Bon développement avec votre node Turso !"
+else
+    log_error "❌ Déploiement échoué"
+    exit 1
+fi
