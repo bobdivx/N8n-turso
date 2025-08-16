@@ -1,0 +1,25 @@
+{
+  "name": "n8n-nodes-turso",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "Jules",
+"n8n": { "n8nVersion": "1.0.0", "nodes": [ "dist/nodes/Turso.node.js" ], "credentials": [ "dist/credentials/TursoApi.credentials.js" ] },
+"repository": { "type": "git", "url": "https://github.com/n8n-io/n8n-nodes-starter.git" }
+  "license": "MIT",
+  "type": "commonjs",
+  "dependencies": {
+    "@libsql/client": "^0.15.11",
+    "n8n-workflow": "^1.82.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "n8n-core": "^1.14.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.2"
+  }
+}
